@@ -210,7 +210,7 @@ a.deck-tile:hover { border-color: var(--accent); }
 
 .inline-form { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; }
 .inline-form label { margin: 0; min-width: 160px; flex: 1; }
-.inline-form label.check { min-width: 0; flex: 0; padding-bottom: 9px; }
+.inline-form label.check { flex: 0 0 auto; min-width: 0; align-items: center; flex-direction: row; padding-bottom: 9px; white-space: nowrap; }
 
 .panel { margin-bottom: 14px; }
 .panel summary { cursor: pointer; font-weight: 600; color: var(--accent); }
