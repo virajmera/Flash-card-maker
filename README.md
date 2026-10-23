@@ -18,6 +18,19 @@ A small, static flashcard app. No accounts, no build step, no backend.
 - **Export** a deck as JSON or CSV, export everything as a backup, or copy a share link
 - **Mobile-friendly** and **offline** after the first visit (service worker)
 
+## Accounts and cloud sync (optional)
+
+Without an account, progress stays in the browser. With one, decks sync across devices. The backend is [Supabase](https://supabase.com) (free tier).
+
+1. Create a Supabase project.
+2. In the SQL Editor, run `supabase-setup.sql`. It creates the `decks` table with row-level security, so each user only sees their own decks.
+3. Copy the project URL and anon public key (Project Settings → API) into `config.js`.
+4. In Supabase, under Authentication → Providers, keep Email enabled. Turn off "Confirm email" if you don't want sign-up confirmation.
+
+With `config.js` left empty, the sign-in button is hidden and the app works as before.
+
+How sync works: each deck is stored as one row. Changes upload a few seconds after you edit. When signed in, the newer copy of each deck wins. On sign-out the device's decks are cleared, so the next person doesn't see them.
+
 ## Run locally
 
 Any static server works. For example:

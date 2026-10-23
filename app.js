@@ -20,8 +20,13 @@ const shuffled = (arr) => {
 const LABEL = { again: 'Again', hard: 'Hard', got: 'Got it' };
 
 const app = $('#app');
+const Cloud = window.Cloud;
+const snapshots = new Map(); // deck id → JSON of the deck last saved, used to spot changes
+const pendingPush = new Set(); // deck ids waiting to upload to the account
+let pushTimer;
 let state = loadState();
 let study = null; // the active study session, or null
+rememberSnapshots();
 
 // ---------- storage ----------
 
@@ -37,18 +42,40 @@ function loadState() {
   return { decks: [] };
 }
 
+// A deck's JSON without its updatedAt stamp, so stamping doesn't count as a change.
+function strip(deck) {
+  const { updatedAt, ...rest } = deck;
+  return JSON.stringify(rest);
+}
+
+function rememberSnapshots() {
+  snapshots.clear();
+  for (const deck of state.decks) snapshots.set(deck.id, strip(deck));
+}
+
 function saveState() {
+  // Stamp decks that changed since the last save, so sync knows what to upload.
+  const changed = [];
+  for (const deck of state.decks) {
+    const json = strip(deck);
+    if (snapshots.get(deck.id) !== json) {
+      deck.updatedAt = Date.now();
+      snapshots.set(deck.id, json);
+      changed.push(deck.id);
+    }
+  }
   try {
     localStorage.setItem(KEY, JSON.stringify(state));
   } catch (err) {
     toast('Could not save. Browser storage may be full or blocked.');
   }
+  if (Cloud.user) changed.forEach(queuePush);
 }
 
 // ---------- models ----------
 
 function makeDeck({ title, subject, description }) {
-  return { id: uid(), title: clean(title) || 'Untitled deck', subject: clean(subject), description: clean(description), createdAt: Date.now(), cards: [] };
+  return { id: uid(), title: clean(title) || 'Untitled deck', subject: clean(subject), description: clean(description), createdAt: Date.now(), updatedAt: Date.now(), cards: [] };
 }
 
 function makeCard({ q, a, example, image, ...progress }) {
@@ -378,7 +405,7 @@ function toggleStar(card) {
 
 // ---------- dialogs ----------
 
-function openModal(title, fieldsHtml, onSubmit) {
+function openModal(title, fieldsHtml, onSubmit, buttons = '<button class="primary" type="submit">Save</button>') {
   const overlay = document.createElement('div');
   overlay.className = 'overlay';
   overlay.innerHTML = `
@@ -387,7 +414,7 @@ function openModal(title, fieldsHtml, onSubmit) {
       ${fieldsHtml}
       <div class="row-actions center" style="justify-content:flex-end; margin-top:8px">
         <button class="ghost" type="button" data-close>Cancel</button>
-        <button class="primary" type="submit">Save</button>
+        ${buttons}
       </div>
     </form>`;
   const form = overlay.querySelector('form');
@@ -397,7 +424,10 @@ function openModal(title, fieldsHtml, onSubmit) {
   form.addEventListener('submit', (e) => {
     e.preventDefault();
     const data = Object.fromEntries(new FormData(form));
-    if (onSubmit(data) !== false) overlay.remove();
+    // onSubmit may be async (account calls); return false to keep the dialog open.
+    Promise.resolve(onSubmit(data, e.submitter)).then((result) => {
+      if (result !== false) overlay.remove();
+    });
   });
   document.body.append(overlay);
   form.querySelector('input, textarea')?.focus();
@@ -609,6 +639,7 @@ app.addEventListener('click', (e) => {
       if (deck && confirm(`Delete "${deck.title}" and its ${deck.cards.length} cards? This cannot be undone.`)) {
         state.decks = state.decks.filter((d) => d.id !== deck.id);
         saveState();
+        if (Cloud.user) Cloud.removeDeck(deck.id).catch(() => toast('Could not delete the deck from your account.'));
         location.hash = '#/';
         render();
       }
@@ -675,6 +706,14 @@ app.addEventListener('click', (e) => {
     case 'study-again':
       study = null;
       render();
+      break;
+
+    case 'sign-in':
+      openAuthModal();
+      break;
+
+    case 'sign-out':
+      signOutCloud();
       break;
 
     default:
@@ -789,6 +828,108 @@ function toast(message) {
   toastTimer = setTimeout(() => el.classList.remove('show'), 2600);
 }
 
+// ---------- accounts & sync ----------
+
+function renderAccount() {
+  const box = $('#account');
+  box.hidden = !Cloud.enabled;
+  if (!Cloud.enabled) return;
+  box.innerHTML = Cloud.user
+    ? `<span class="muted">${esc(Cloud.user.email)}</span>
+       <button class="ghost small" data-action="sign-out" type="button">Sign out</button>`
+    : '<button class="ghost small" data-action="sign-in" type="button">Sign in to sync</button>';
+}
+
+function openAuthModal() {
+  openModal('Sign in to sync', `
+    <label>Email<input name="email" type="email" required autocomplete="email"></label>
+    <label>Password<input name="password" type="password" required minlength="6" autocomplete="current-password"></label>
+    <p class="muted">New here? Choose "Create account". Supabase may ask you to confirm your email first.</p>`,
+  async (data, submitter) => {
+    const create = submitter?.dataset.mode === 'signup';
+    const { error } = create
+      ? await Cloud.signUp(data.email, data.password)
+      : await Cloud.signIn(data.email, data.password);
+    if (error) {
+      toast(error.message);
+      return false;
+    }
+    toast(create ? 'Account created. Check your email if confirmation is needed.' : 'Signed in');
+  },
+  `<button class="primary" type="submit" data-mode="signin">Sign in</button>
+   <button class="ghost" type="submit" data-mode="signup">Create account</button>`);
+}
+
+// Upload changed decks, a few seconds after the last edit, so typing doesn't send a request per keystroke.
+function queuePush(id) {
+  pendingPush.add(id);
+  clearTimeout(pushTimer);
+  pushTimer = setTimeout(flushPushes, 1500);
+}
+
+// Returns true when everything has reached the account.
+async function flushPushes() {
+  const ids = [...pendingPush];
+  pendingPush.clear();
+  for (const id of ids) {
+    const deck = findDeck(id);
+    if (!deck || !Cloud.user) continue;
+    try {
+      await Cloud.saveDeck(deck);
+    } catch (err) {
+      pendingPush.add(id);
+      toast('Cloud save failed. Your changes are still saved on this device.');
+    }
+  }
+  return pendingPush.size === 0;
+}
+
+// Pull the account's decks and merge them with this device: newer copy wins per deck.
+async function syncFromCloud() {
+  try {
+    const rows = await Cloud.fetchDecks();
+    for (const { data: remote } of rows) {
+      const index = state.decks.findIndex((d) => d.id === remote.id);
+      if (index === -1) state.decks.push(remote);
+      else if ((remote.updatedAt || 0) > (state.decks[index].updatedAt || 0)) state.decks[index] = remote;
+    }
+    rememberSnapshots();
+    localStorage.setItem(KEY, JSON.stringify(state));
+    // Upload everything here, so decks that only exist on this device reach the account.
+    state.decks.forEach((deck) => pendingPush.add(deck.id));
+    await flushPushes();
+    if (!study) render();
+    toast('Progress synced');
+  } catch (err) {
+    toast('Could not sync with your account. Your data is still saved on this device.');
+  }
+}
+
+async function signOutCloud() {
+  const synced = await flushPushes();
+  if (!synced && !confirm('Some changes have not reached your account yet. Sign out and remove them from this device?')) return;
+  await Cloud.signOut();
+  // Clear this device so the next person to sign in doesn't see these decks.
+  state = { decks: [] };
+  localStorage.removeItem(KEY);
+  rememberSnapshots();
+  pendingPush.clear();
+  render();
+  toast('Signed out');
+}
+
+let syncedUserId = null;
+
+function onAuthChange() {
+  renderAccount();
+  const id = Cloud.user ? Cloud.user.id : null;
+  if (id && id !== syncedUserId) {
+    syncedUserId = id;
+    syncFromCloud();
+  }
+  if (!id) syncedUserId = null;
+}
+
 // ---------- start ----------
 
 // Opening a shared link: #share=<encoded deck>. Confirm before adding it.
@@ -809,8 +950,16 @@ function handleShareLink() {
 
 window.addEventListener('hashchange', render);
 
+Cloud.onAuthChange(onAuthChange);
 handleShareLink();
 render();
+renderAccount();
+Cloud.init()
+  .then(onAuthChange)
+  .catch(() => {
+    renderAccount();
+    toast('Accounts are unavailable right now. The app still works offline.');
+  });
 
 if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
   navigator.serviceWorker.register('sw.js').catch(() => {});

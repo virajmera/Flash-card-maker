@@ -1,7 +1,7 @@
 // Offline support: cache the app shell on first visit, then serve it from cache.
 // Bump CACHE when shipping changes to the shell files so returning users get them.
-const CACHE = 'flashcards-v1';
-const SHELL = ['./', './index.html', './styles.css', './app.js', './manifest.webmanifest', './icon.svg'];
+const CACHE = 'flashcards-v2';
+const SHELL = ['./', './index.html', './styles.css', './config.js', './cloud.js', './app.js', './manifest.webmanifest', './icon.svg'];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(SHELL)).then(() => self.skipWaiting()));

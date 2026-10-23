@@ -13,6 +13,7 @@
   <header class="topbar">
     <a href="#/" class="brand">🃏 Flashcard Maker</a>
     <div class="row-actions">
+      <div id="account" class="row-actions" hidden></div>
       <button id="btn-import-file" class="ghost" type="button">Import file</button>
       <button id="btn-export-all" class="ghost" type="button">Export all</button>
     </div>
@@ -23,6 +24,8 @@
   <input type="file" id="file-input" accept=".csv,.json,.txt" hidden>
   <div id="toast" role="status" aria-live="polite"></div>
 
+  <script src="config.js"></script>
+  <script src="cloud.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
