@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Flashcard Maker</title>
+  <meta name="description" content="Make, study and share flashcard decks. No account needed, works offline.">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <a href="#/" class="brand">🃏 Flashcard Maker</a>
+    <div class="row-actions">
+      <button id="btn-import-file" class="ghost" type="button">Import file</button>
+      <button id="btn-export-all" class="ghost" type="button">Export all</button>
+    </div>
+  </header>
+
+  <main id="app"></main>
+
+  <input type="file" id="file-input" accept=".csv,.json,.txt" hidden>
+  <div id="toast" role="status" aria-live="polite"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
