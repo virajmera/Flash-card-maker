@@ -840,6 +840,14 @@ function renderAccount() {
     : '<button class="ghost small" data-action="sign-in" type="button">Sign in to sync</button>';
 }
 
+// The account buttons sit in the header, outside #app, so they need their own click handler.
+$('#account').addEventListener('click', (e) => {
+  const el = e.target.closest('[data-action]');
+  if (!el) return;
+  if (el.dataset.action === 'sign-in') openAuthModal();
+  if (el.dataset.action === 'sign-out') signOutCloud();
+});
+
 function openAuthModal() {
   openModal('Sign in to sync', `
     <label>Email<input name="email" type="email" required autocomplete="email"></label>
